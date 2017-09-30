@@ -13,6 +13,8 @@
 #include <cassert>
 #include <iostream>
 #include <map>
+#include <string.h>
+#include <rina/api.h>
 
 #include "cpp_common_pd_definitions.h"
 #include "utils.h"
@@ -414,6 +416,36 @@ std::string HttpClient::request_type_to_string(RequestType request_type)
   }
 }
 
+// CURLOPT_OPENSOCKETFUNCTION start
+static curl_socket_t opensocket(void *clientp,
+                                curlsocktype purpose,
+                                struct curl_sockaddr *address)
+{
+    curl_socket_t sockfd;
+
+    // Flow spec
+    struct rina_flow_spec default_flowspec;
+    rina_flow_spec_default(&default_flowspec);
+
+    sockfd = rina_flow_alloc(NULL,
+                             "sprout.IPCP",
+                             "homestead",
+                             &default_flowspec,
+                             0);
+
+    // sockfd = rina_flow_alloc_wait(sockfd);
+
+    return sockfd;
+}
+
+static int sockopt_callback(void *clientp,
+                            curl_socket_t curlfd,
+                            curlsocktype purpose)
+{
+    return CURL_SOCKOPT_ALREADY_CONNECTED;
+}
+// CURLOPT_OPENSOCKETFUNCTION end
+
 /// Get data; return a HTTP return code
 HTTPCode HttpClient::send_request(RequestType request_type,
                                   const std::string& url,
@@ -526,6 +558,11 @@ HTTPCode HttpClient::send_request(RequestType request_type,
                           &target.address.addr,
                           buf,
                           sizeof(buf));
+
+    // CURLOPT_OPENSOCKETFUNCTION with RINA used
+    curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensocket);
+    curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, this); 
+    curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_callback);
 
     // We want curl's DNS cache to contain exactly one entry: for the host and
     // IP that we're currently processing.
