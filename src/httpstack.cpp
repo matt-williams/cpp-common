@@ -15,6 +15,8 @@
 #include <climits>
 #include <algorithm>
 #include "log.h"
+#include <unistd.h>
+#include <rina/api.h>
 
 const std::string BODY_OMITTED = "<Body present but not logged>";
 
@@ -251,6 +253,92 @@ void HttpStack::bind_unix_socket(const std::string& bind_path)
 
   // Socket needs to be world-writeable for nginx to use it
   chmod(bind_path.c_str(), 0777);
+}
+
+void HttpStack::bind_rina_socket(const std::string& dif_name, const std::string& appl_name)
+{
+  TRC_STATUS("Binding HTTP RINA socket: DIF=%s, application=%s", dif_name.c_str(), appl_name.c_str());
+
+  /* Initialization of RLITE application. */
+  int cfd = rina_open();
+  if (cfd < 0)
+  {
+    // LCOV_EXCL_START
+    TRC_ERROR("rina_open failed");
+    throw Exception("rina_open", cfd);
+    // LCOV_EXCL_STOP
+  }
+
+  int wfd = rina_register(cfd, dif_name.c_str(), appl_name.c_str(), 0);
+  ::close(cfd);
+  if (wfd < 0)
+  {
+    // LCOV_EXCL_START
+    TRC_ERROR("rina_register failed with DIF %s and application %s",
+              dif_name.c_str(), appl_name.c_str());
+    throw Exception("rina_register", wfd);
+    // LCOV_EXCL_STOP
+  }
+
+  // // Async version
+  // int wfd = rina_register(cfd, dif_name.c_str(), appl_name.c_str(), RINA_F_NOWAIT);
+  // if (wfd < 0)
+  // {
+  //   // LCOV_EXCL_START
+  //   TRC_ERROR("evhtp_bind_socket failed with path %s",
+  //             full_bind_address.c_str());
+  //   throw Exception("evhtp_bind_socket (unix)", rc);
+  //   // LCOV_EXCL_STOP
+  // }
+  //
+  // int rc = rina_register_wait(cfd, fsms[i].fd);
+  // if (rc < 0)
+  // {
+  //   // LCOV_EXCL_START
+  //   TRC_ERROR("rina_register_wait failed");
+  //   throw Exception("rina_register", rc);
+  //   // LCOV_EXCL_STOP
+  // }
+
+  struct event* event = event_new(_evhtp->evbase,
+                                  wfd,
+                                  EV_READ | EV_PERSIST,
+                                  HttpStack::rina_listener_callback_fn,
+                                  this);
+  // TODO: Free event with event_free() eventually
+
+  int rc = event_add(event, NULL);
+  if (rc < 0)
+  {
+    // LCOV_EXCL_START
+    TRC_ERROR("event_add failed");
+    throw Exception("event_add", rc);
+    // LCOV_EXCL_STOP
+  }
+}
+
+void HttpStack::rina_listener_callback_fn(evutil_socket_t wfd,
+                                          short events,
+                                          void* http_stack_ptr)
+{
+  HttpStack* http_stack = (HttpStack*)http_stack_ptr;
+  http_stack->rina_listener_callback(wfd, events);
+}
+
+void HttpStack::rina_listener_callback(evutil_socket_t wfd,
+                                       short events)
+{
+  TRC_DEBUG("Got event on RINA listener socket: %d", events);
+
+  int fd = rina_flow_accept(wfd, NULL, NULL, 0);
+  if (fd >= 0)
+  {
+    evhtp_accept_cb(NULL, fd, NULL, 0, _evhtp);
+  }
+  else
+  {
+    TRC_ERROR("rina_flow_accept failed with rc %d", fd);
+  }
 }
 
 // start() should only be called *after* the appropriate bind_*_socket() function

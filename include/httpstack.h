@@ -391,6 +391,7 @@ public:
   virtual void bind_tcp_socket(const std::string& bind_address,
                                unsigned short port);
   virtual void bind_unix_socket(const std::string& bind_path);
+  virtual void bind_rina_socket(const std::string& dif_name, const std::string& appl_name);
   virtual void register_handler(const char* path, HandlerInterface* handler);
   virtual void register_default_handler(HandlerInterface* handler);
   virtual void start(evhtp_thread_init_cb init_cb = NULL);
@@ -416,8 +417,10 @@ private:
   virtual void send_reply_internal(Request& req, int rc, SAS::TrailId trail);
   static void handler_callback_fn(evhtp_request_t* req, void* handler_reg_param);
   static void* event_base_thread_fn(void* http_stack_ptr);
+  static void rina_listener_callback_fn(evutil_socket_t fd, short events, void* http_stack_ptr);
   void handler_callback(evhtp_request_t* req, HandlerInterface* handler);
   void event_base_thread_fn();
+  void rina_listener_callback(evutil_socket_t fd, short events);
 
   // Don't implement the following, to avoid copies of this instance.
   HttpStack(HttpStack const&);
