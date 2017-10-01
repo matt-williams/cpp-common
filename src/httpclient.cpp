@@ -36,6 +36,8 @@ static const int MAX_TARGETS = 5;
 /// @param sas_log_level the level to log HTTP flows at (none/protocol/detail).
 /// @param log_display_address Log an address other than server to SAS?
 /// @param server_display_address The address to log in the SAS call flow
+/// @param local_appl The name of the local application
+/// @param remote_appl The name of the remote application
 HttpClient::HttpClient(bool assert_user,
                        HttpResolver* resolver,
                        SNMP::IPCountTable* stat_table,
@@ -46,7 +48,9 @@ HttpClient::HttpClient(bool assert_user,
                        bool remote_connection,
                        long timeout_ms,
                        bool log_display_address,
-                       std::string server_display_address) :
+                       std::string server_display_address,
+                       std::string local_appl,
+                       std::string remote_appl) :
   _assert_user(assert_user),
   _resolver(resolver),
   _load_monitor(load_monitor),
@@ -56,7 +60,9 @@ HttpClient::HttpClient(bool assert_user,
   _conn_pool(load_monitor, stat_table, remote_connection, timeout_ms),
   _should_omit_body(should_omit_body),
   _log_display_address(log_display_address),
-  _server_display_address(server_display_address)
+  _server_display_address(server_display_address),
+  _local_appl(local_appl),
+  _remote_appl(remote_appl)
 {
   pthread_key_create(&_uuid_thread_local, cleanup_uuid);
   pthread_mutex_init(&_lock, NULL);
@@ -417,10 +423,22 @@ std::string HttpClient::request_type_to_string(RequestType request_type)
 }
 
 // CURLOPT_OPENSOCKETFUNCTION start
-static curl_socket_t opensocket(void *clientp,
-                                curlsocktype purpose,
-                                struct curl_sockaddr *address)
+
+void HttpClient::opensocket_fn(void* clientp,
+                               curlsocktype purpose,
+                               struct curl_sockaddr *address)
 {
+    TRC_DEBUG("In opensocket_fn");
+    HttpClient* http_client = (HttpClient*)clientp;
+    http_client->opensocket(clientp, purpose, address);
+}
+
+// Uses the default flow spec
+curl_socket_t HttpClient::opensocket(void *clientp,
+                                     curlsocktype purpose,
+                                     struct curl_sockaddr *address)
+{
+    TRC_DEBUG("In opensocket");
     curl_socket_t sockfd;
 
     // Flow spec
@@ -428,20 +446,22 @@ static curl_socket_t opensocket(void *clientp,
     rina_flow_spec_default(&default_flowspec);
 
     sockfd = rina_flow_alloc(NULL,
-                             "sprout.IPCP",
-                             "homestead",
+                             _local_appl.c_str(),
+                             _remote_appl.c_str(),
                              &default_flowspec,
                              0);
+    TRC_DEBUG("sockfd: %d, %d", sockfd, errno);
 
     // sockfd = rina_flow_alloc_wait(sockfd);
 
     return sockfd;
 }
 
-static int sockopt_callback(void *clientp,
-                            curl_socket_t curlfd,
-                            curlsocktype purpose)
+int HttpClient::sockopt_callback(void *clientp,
+                                 curl_socket_t curlfd,
+                                 curlsocktype purpose)
 {
+    TRC_DEBUG("In sockopt_callback");
     return CURL_SOCKOPT_ALREADY_CONNECTED;
 }
 // CURLOPT_OPENSOCKETFUNCTION end
@@ -560,9 +580,14 @@ HTTPCode HttpClient::send_request(RequestType request_type,
                           sizeof(buf));
 
     // CURLOPT_OPENSOCKETFUNCTION with RINA used
-    curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensocket);
-    curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, this); 
-    curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_callback);
+    TRC_DEBUG("_local_appl: %s", _local_appl.c_str());
+    TRC_DEBUG("_remote_appl: %s", _remote_appl.c_str());
+    if(_local_appl.compare("") != 0 && _remote_appl.compare("") != 0)
+    {
+      curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensocket_fn);
+      curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, this); 
+      curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_callback);
+    }
 
     // We want curl's DNS cache to contain exactly one entry: for the host and
     // IP that we're currently processing.

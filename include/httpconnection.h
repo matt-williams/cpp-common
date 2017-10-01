@@ -40,7 +40,9 @@ public:
                  bool remote_connection = false,
                  long timeout_ms = -1,
                  bool log_display_address = false,
-                 std::string server_display_address = "") :
+                 std::string server_display_address = "",
+                 std::string local_appl = "",
+                 std::string remote_appl = "") :
     _scheme(scheme),
     _server(server),
     _client(assert_user,
@@ -53,7 +55,9 @@ public:
             remote_connection,
             timeout_ms,
             log_display_address,
-            server_display_address)
+            server_display_address,
+            local_appl,
+            remote_appl)
   {
     TRC_STATUS("Configuring HTTP Connection");
     TRC_STATUS("  Connection created for server %s", _server.c_str());
@@ -74,7 +78,12 @@ public:
                    comm_monitor,
                    "http",
                    false,
-                   remote_connection)
+                   remote_connection,
+                   -1,
+                   false,
+                   "",
+                   "",
+                   "")
   {}
 
   virtual ~HttpConnection()

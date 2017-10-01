@@ -68,7 +68,9 @@ public:
              bool remote_connection = false,
              long timeout_ms = -1,
              bool log_display_address = false,
-             std::string server_display_address = "");
+             std::string server_display_address = "",
+             std::string local_appl = "",
+             std::string remote_appl = "");
 
   HttpClient(bool assert_user,
              HttpResolver* resolver,
@@ -323,6 +325,11 @@ private:
     return nullptr;
   }
 
+  // RINA
+  static void opensocket_fn(void* clientp, curlsocktype purpose, struct curl_sockaddr *address);
+  curl_socket_t opensocket(void *clientp, curlsocktype purpose, struct curl_sockaddr *address);
+  static int sockopt_callback(void *clientp, curl_socket_t curlfd, curlsocktype purpose);
+
   /// Clean-up function for any memory allocated by set_curl_options_host
   virtual void cleanup_host_context(void* host_context)
   {
@@ -406,4 +413,6 @@ private:
   bool _should_omit_body;
   bool _log_display_address;
   std::string _server_display_address;
+  std::string _local_appl;
+  std::string _remote_appl;
 };
