@@ -103,8 +103,30 @@ void HttpStack::send_reply(Request& req,
   }
 }
 
+void HttpStack::event_log_cb(int severity, const char* msg) {
+  switch (severity) {
+    case EVENT_LOG_DEBUG:
+      TRC_DEBUG("libevent: %s", msg);
+      break;
+
+    case EVENT_LOG_MSG:
+      TRC_INFO("libevent: %s", msg);
+      break;
+    
+    case EVENT_LOG_WARN:
+      TRC_WARN("libevent: %s", msg);
+      break;
+    
+    case EVENT_LOG_ERR:
+      TRC_ERROR("libevent: %s", msg);
+      break;
+  }
+}
+
 void HttpStack::initialize()
 {
+  event_set_log_callback(HttpStack::event_log_cb);
+
   // Initialize if we haven't already done so.  We don't do this in the
   // constructor because we can't throw exceptions on failure.
   if (!_ev_using_pthreads)
@@ -260,23 +282,23 @@ void HttpStack::bind_rina_socket(const std::string& dif_name, const std::string&
   TRC_STATUS("Binding HTTP RINA socket: DIF=%s, application=%s", dif_name.c_str(), appl_name.c_str());
 
   /* Initialization of RLITE application. */
-  int cfd = rina_open();
-  if (cfd < 0)
+  int fd = rina_open();
+  TRC_DEBUG("rina_open returns FD %d", fd);
+  if (fd < 0)
   {
     // LCOV_EXCL_START
     TRC_ERROR("rina_open failed");
-    throw Exception("rina_open", cfd);
+    throw Exception("rina_open", fd);
     // LCOV_EXCL_STOP
   }
 
-  int wfd = rina_register(cfd, dif_name.c_str(), appl_name.c_str(), 0);
-  ::close(cfd);
-  if (wfd < 0)
+  int rc = rina_register(fd, dif_name.c_str(), appl_name.c_str(), 0);
+  if (rc < 0)
   {
     // LCOV_EXCL_START
     TRC_ERROR("rina_register failed with DIF %s and application %s",
               dif_name.c_str(), appl_name.c_str());
-    throw Exception("rina_register", wfd);
+    throw Exception("rina_register", rc);
     // LCOV_EXCL_STOP
   }
 
@@ -300,14 +322,14 @@ void HttpStack::bind_rina_socket(const std::string& dif_name, const std::string&
   //   // LCOV_EXCL_STOP
   // }
 
-  struct event* event = event_new(_evhtp->evbase,
-                                  wfd,
+  struct event* event = event_new(_evbase,
+                                  fd,
                                   EV_READ | EV_PERSIST,
                                   HttpStack::rina_listener_callback_fn,
                                   this);
   // TODO: Free event with event_free() eventually
 
-  int rc = event_add(event, NULL);
+  rc = event_add(event, NULL);
   if (rc < 0)
   {
     // LCOV_EXCL_START

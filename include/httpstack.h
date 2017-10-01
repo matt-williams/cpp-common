@@ -415,6 +415,7 @@ public:
 
 private:
   virtual void send_reply_internal(Request& req, int rc, SAS::TrailId trail);
+  static void event_log_cb(int severity, const char* msg);
   static void handler_callback_fn(evhtp_request_t* req, void* handler_reg_param);
   static void* event_base_thread_fn(void* http_stack_ptr);
   static void rina_listener_callback_fn(evutil_socket_t fd, short events, void* http_stack_ptr);
