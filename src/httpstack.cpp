@@ -114,7 +114,7 @@ void HttpStack::event_log_cb(int severity, const char* msg) {
       break;
     
     case EVENT_LOG_WARN:
-      TRC_WARN("libevent: %s", msg);
+      TRC_WARNING("libevent: %s", msg);
       break;
     
     case EVENT_LOG_ERR:
