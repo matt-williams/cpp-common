@@ -142,7 +142,7 @@ public:
   ///                           data
   /// @param response           Location to store retrieved data
   /// @param trail              SAS trail to use
-  /// @param body               Body to send on the request
+  /// @param body               JSON body to send on the request
   /// @param username           Username to assert if assertUser is true, else
   ///                           ignored
   /// @param allowed_host_state what lists to resolve hosts from, where we
@@ -182,7 +182,7 @@ public:
   /// @param headers            Location to store the header part of the retrieved
   ///                           data
   /// @param response           Location to store retrieved data
-  /// @param body               Body to send on the request
+  /// @param body               JSON body to send on the request
   /// @param extra_req_headers  Extra headers to add to the request
   /// @param trail              SAS trail to use
   /// @param username           Username to assert if assertUser is true, else
@@ -236,7 +236,8 @@ public:
   /// @param headers  Location to store the header part of the retrieved
   ///                 data
   /// @param response Location to store retrieved data
-  /// @param body     Body to send on the request
+  /// @param body     JSON body to send on the request
+  /// @param extra_req_headers  Extra headers to add to the request
   /// @param trail    SAS trail to use
   /// @param username Username to assert if assertUser is true, else
   ///                 ignored
@@ -248,10 +249,15 @@ public:
                          const std::string& body,
                          SAS::TrailId trail,
                          const std::string& username = "");
-
   virtual long send_post(const std::string& url_tail,
                          std::map<std::string, std::string>& headers,
                          const std::string& body,
+                         SAS::TrailId trail,
+                         const std::string& username = "");
+  virtual long send_post(const std::string& url_tail,
+                         std::map<std::string, std::string>& headers,
+                         const std::string& body,
+                         const std::vector<std::string>& extra_req_headers,
                          SAS::TrailId trail,
                          const std::string& username = "");
 

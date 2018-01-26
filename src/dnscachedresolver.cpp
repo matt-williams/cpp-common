@@ -537,7 +537,11 @@ void DnsCachedResolver::inner_dns_query(const std::vector<std::string>& domains,
     // request further.
     TRC_DEBUG("Wait for query responses");
     pthread_mutex_unlock(&_cache_lock);
-    wait_for_replies(channel);
+    CW_IO_STARTS("DNS query")
+    {
+      wait_for_replies(channel);
+    }
+    CW_IO_COMPLETES()
     pthread_mutex_lock(&_cache_lock);
     TRC_DEBUG("Received all query responses");
   }
@@ -556,7 +560,11 @@ void DnsCachedResolver::inner_dns_query(const std::vector<std::string>& domains,
       // We must release the global lock and let the other thread finish
       // the query.
       TRC_DEBUG("Waiting for (non-cached) DNS query for %s", i->c_str());
-      pthread_cond_wait(&_got_reply_cond, &_cache_lock);
+      CW_IO_STARTS("DNS pending query")
+      {
+        pthread_cond_wait(&_got_reply_cond, &_cache_lock);
+      }
+      CW_IO_COMPLETES()
       ce = get_cache_entry(*i, dnstype);
       TRC_DEBUG("Reawoken from wait for %s type %d", i->c_str(), dnstype);
     }
@@ -831,7 +839,7 @@ void DnsCachedResolver::dns_response(const std::string& domain,
     {
       // NXDOMAIN, indicating that the DNS entry has been definitively removed
       // (rather than a DNS server failure). Clear the cache for this
-      // entry.
+      // entry and if there's a TTL on the SOA, use that.
       if (trail != 0)
       {
         SAS::Event event(trail, SASEvent::DNS_NOT_FOUND, 0);
@@ -841,6 +849,32 @@ void DnsCachedResolver::dns_response(const std::string& domain,
       }
 
       clear_cache_entry(ce);
+
+      DnsParser parser(abuf, alen);
+      if (parser.parse())
+      {
+        while (!parser.authorities().empty())
+        {
+          DnsRRecord* rr = parser.authorities().front();
+          parser.authorities().pop_front();
+
+          if (rr->rrtype() == ns_t_soa)
+          {
+            // Clamp the expiry time to be no more than the default TTL from now
+            int max_expires = DEFAULT_NEGATIVE_CACHE_TTL + time(NULL);
+            ce->expires = std::min(rr->expires(), max_expires);
+
+            // We must delete any records we remove from the parser
+            delete rr;
+            break;
+          }
+          else
+          {
+            // We must delete any records we remove from the parser
+            delete rr;
+          }
+        }
+      }
     }
     else
     {
@@ -1190,7 +1224,7 @@ void DnsCachedResolver::DnsTsx::ares_callback(int status, int timeouts, unsigned
     event.add_var_param(_domain);
     SAS::report_event(event);
   }
-  
+
   _channel->resolver->dns_response(_domain, _dnstype, status, abuf, alen, _trail);
   --_channel->pending_queries;
   delete this;

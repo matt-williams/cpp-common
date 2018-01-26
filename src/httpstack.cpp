@@ -93,7 +93,7 @@ void HttpStack::send_reply(Request& req,
   {
     if (_load_monitor != NULL)
     {
-      _load_monitor->request_complete(latency_us);
+      _load_monitor->request_complete(latency_us, trail);
     }
 
     if (_stats != NULL)
@@ -195,7 +195,6 @@ void HttpStack::bind_tcp_socket(const std::string& bind_address,
   addrinfo* servinfo = NULL;
 
   std::string full_bind_address = bind_address;
-  std::string local_bind_address = "127.0.0.1";
   const int error_num = getaddrinfo(bind_address.c_str(), NULL, &hints, &servinfo);
 
   if ((error_num == 0) &&
@@ -218,7 +217,6 @@ void HttpStack::bind_tcp_socket(const std::string& bind_address,
               INET6_ADDRSTRLEN);
     full_bind_address = dest_str;
     full_bind_address = "ipv6:" + full_bind_address;
-    local_bind_address = "ipv6:::1";
   }
 
   freeaddrinfo(servinfo);
@@ -234,23 +232,6 @@ void HttpStack::bind_tcp_socket(const std::string& bind_address,
     // LCOV_EXCL_STOP
   }
 
-  if ((local_bind_address != full_bind_address) &&
-      (full_bind_address != "0.0.0.0")          &&
-      (full_bind_address != "ipv6:::"))
-  {
-    // Listen on the local address as well as the main address (so long as the
-    // main address isn't all)
-    rc = evhtp_bind_socket(_evhtp, local_bind_address.c_str(), port, 1024);
-    if (rc != 0)
-    {
-      // LCOV_EXCL_START
-      TRC_ERROR("evhtp_bind_socket failed with address %s and port %d",
-                local_bind_address.c_str(),
-                port);
-      throw Exception("evhtp_bind_socket (tcp) - localhost", rc);
-      // LCOV_EXCL_STOP
-    }
-  }
 }
 
 void HttpStack::bind_unix_socket(const std::string& bind_path)
@@ -458,8 +439,8 @@ void HttpStack::handler_callback(evhtp_request_t* req,
   {
     request.sas_log_overload(trail,
                              503,
-                             _load_monitor->get_target_latency(),
-                             _load_monitor->get_current_latency(),
+                             _load_monitor->get_target_latency_us(),
+                             _load_monitor->get_current_latency_us(),
                              _load_monitor->get_rate_limit(),
                              0);
     send_reply_internal(request, 503, trail);
@@ -619,20 +600,47 @@ bool HttpStack::Request::get_local_ip_port(std::string& ip, unsigned short& port
 // SasLogger methods.
 //
 
-void HttpStack::SasLogger::log_correlator(SAS::TrailId trail,
+void HttpStack::SasLogger::log_correlators(SAS::TrailId trail,
                                           Request& req,
                                           uint32_t instance_id)
 {
-  std::string correlator = req.header(SASEvent::HTTP_BRANCH_HEADER_NAME);
-  if (correlator != "")
-  {
-    SAS::Marker corr_marker(trail, MARKER_ID_VIA_BRANCH_PARAM, instance_id);
+
+  log_correlator(trail,
+                 req,
+                 instance_id,
+                 SASEvent::HTTP_BRANCH_HEADER_NAME,
+                 MARKER_ID_VIA_BRANCH_PARAM);
+
+  log_correlator(trail,
+                 req,
+                 instance_id,
+                 SASEvent::HTTP_SPAN_ID,
+                 MARKED_ID_GENERIC_CORRELATOR);
+}
+
+void HttpStack::SasLogger::log_correlator(SAS::TrailId trail,
+                                          Request& req,
+                                          uint32_t instance_id,
+                                          std::string header_name,
+                                          int marker_type) {
+
+  // Report a correlating marker to SAS.  Set the option that means any
+  // associations will not reactivate the trail group.  Otherwise
+  // interactions with this server that happen after the call ends will cause
+  // long delays in the call appearing in SAS.
+
+  std::string correlator = req.header(header_name);
+
+  if (correlator != "") {
+    SAS::Marker corr_marker(trail, marker_type, instance_id);
     corr_marker.add_var_param(correlator);
 
-    // Report a correlating marker to SAS.  Set the option that means any
-    // associations will not reactivate the trail group.  Otherwise
-    // interactions with this server that happen after the call ends will cause
-    // long delays in the call appearing in SAS.
+    // Generic correlators have a uniqueness scope. Use UUIDs for HTTP requests
+    if (marker_type == MARKED_ID_GENERIC_CORRELATOR) {
+      corr_marker.add_static_param(
+        static_cast<uint32_t>(UniquenessScopes::UUID_RFC4122));
+    }
+
     SAS::report_marker(corr_marker, SAS::Marker::Scope::Trace, false);
   }
 }
@@ -777,7 +785,7 @@ void HttpStack::DefaultSasLogger::sas_log_rx_http_req(SAS::TrailId trail,
                                                       HttpStack::Request& req,
                                                       uint32_t instance_id)
 {
-  log_correlator(trail, req, instance_id);
+  log_correlators(trail, req, instance_id);
   log_req_event(trail, req, instance_id);
 }
 
@@ -805,7 +813,7 @@ void HttpStack::PrivateSasLogger::sas_log_rx_http_req(SAS::TrailId trail,
                                                       HttpStack::Request& req,
                                                       uint32_t instance_id)
 {
-  log_correlator(trail, req, instance_id);
+  log_correlators(trail, req, instance_id);
   log_req_event(trail, req, instance_id, SASEvent::HttpLogLevel::PROTOCOL, true);
 }
 

@@ -40,6 +40,8 @@ static const long HTTP_FORBIDDEN = 403;
 static const long HTTP_NOT_FOUND = 404;
 static const long HTTP_BADMETHOD = 405;
 static const long HTTP_CONFLICT = 409;
+static const long HTTP_PRECONDITION_FAILED = 412;
+static const long HTTP_UNPROCESSABLE_ENTITY = 422;
 static const long HTTP_TEMP_UNAVAILABLE = 480;
 static const long HTTP_SERVER_ERROR = 500;
 static const long HTTP_NOT_IMPLEMENTED = 501;
@@ -127,7 +129,7 @@ public:
   ///                           data
   /// @param response           Location to store retrieved data
   /// @param trail              SAS trail to use
-  /// @param body               Body to send on the request
+  /// @param body               JSON body to send on the request
   /// @param username           Username to assert if assertUser is true, else
   ///                           ignored
   /// @param allowed_host_state what lists to resolve hosts from, where we
@@ -161,7 +163,7 @@ public:
   /// @param headers            Location to store the header part of the retrieved
   ///                           data
   /// @param response           Location to store retrieved data
-  /// @param body               Body to send on the request
+  /// @param body               JSON body to send on the request
   /// @param extra_req_headers  Extra headers to add to the request
   /// @param trail              SAS trail to use
   /// @param username           Username to assert if assertUser is true, else
@@ -206,7 +208,8 @@ public:
   /// @param headers            Location to store the header part of the retrieved
   ///                           data
   /// @param response           Location to store retrieved data
-  /// @param body               Body to send on the request
+  /// @param body               JSON body to send on the request
+  /// @param extra_req_headers  Extra headers to add to the request
   /// @param trail              SAS trail to use
   /// @param username           Username to assert if assertUser is true, else
   ///                           ignored
@@ -214,6 +217,14 @@ public:
   ///                           can take whitelisted, blacklisted, or all results
   ///
   /// @returns                  HTTP code representing outcome of request
+  virtual long send_post(const std::string& url,
+                         std::map<std::string, std::string>& headers,
+                         std::string& response,
+                         const std::string& body,
+                         const std::vector<std::string>& extra_req_headers,
+                         SAS::TrailId trail,
+                         const std::string& username,
+                         int allowed_host_state);
   virtual long send_post(const std::string& url,
                          std::map<std::string, std::string>& headers,
                          std::string& response,
@@ -230,6 +241,12 @@ public:
   virtual long send_post(const std::string& url,
                          std::map<std::string, std::string>& headers,
                          const std::string& body,
+                         SAS::TrailId trail,
+                         const std::string& username = "");
+  virtual long send_post(const std::string& url,
+                         std::map<std::string, std::string>& headers,
+                         const std::string& body,
+                         const std::vector<std::string>& extra_req_headers,
                          SAS::TrailId trail,
                          const std::string& username = "");
 
@@ -280,7 +297,7 @@ private:
   ///
   /// @param request_type     The type of HTTP request to send
   /// @param url              Full URL to request - includes http(s)?://
-  /// @param body             Body to send on the request
+  /// @param body             JSON body to send on the request
   /// @param response         Location to store retrieved data
   /// @param username         Username to assert if assertUser is true, else
   ///                         ignored
@@ -303,6 +320,7 @@ private:
   /// Helper function that builds the curl header in the set_curl_options
   /// method.
   struct curl_slist* build_headers(std::vector<std::string> headers_to_add,
+                                   bool has_body,
                                    bool assert_user,
                                    const std::string& username,
                                    std::string uuid_str);
@@ -370,7 +388,8 @@ private:
                           const std::string& method_str,
                           const std::string& url,
                           CURLcode code,
-                          uint32_t instance_id);
+                          uint32_t instance_id,
+                          const char* error);
 
   void sas_log_bad_retry_after_value(SAS::TrailId trail,
                                      const std::string value,

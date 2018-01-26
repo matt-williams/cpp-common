@@ -72,6 +72,7 @@ protected:
   // Constructor. This is protected to prevent the BaseMemcachedStore from being
   // instantiated directly.
   BaseMemcachedStore(bool binary,
+                     bool remote_store,
                      BaseCommunicationMonitor* comm_monitor);
 
   // Perform a get request to a single replica.
@@ -132,7 +133,8 @@ public:
                          std::string& data,
                          uint64_t& cas,
                          SAS::TrailId trail,
-                         bool log_body);
+                         bool log_body,
+                         Store::Format data_format);
 
   /// Sets the data for the specified table and key.
   Store::Status set_data(const std::string& table,
@@ -141,7 +143,8 @@ public:
                          uint64_t cas,
                          int expiry,
                          SAS::TrailId trail,
-                         bool log_body);
+                         bool log_body,
+                         Store::Format data_format);
 
   /// Sets the data for the specified table and key without performing CAS
   Store::Status set_data_without_cas(const std::string& table,
@@ -149,7 +152,8 @@ public:
                                      const std::string& data,
                                      int expiry,
                                      SAS::TrailId,
-                                     bool log_body);
+                                     bool log_body,
+                                     Store::Format data_format=Store::Format::HEX);
 
   /// Deletes the data for the specified table and key.
   Store::Status delete_data(const std::string& table,

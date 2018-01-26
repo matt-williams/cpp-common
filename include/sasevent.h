@@ -22,13 +22,16 @@ namespace SASEvent {
   // Jenkins job "update-sas-resources".
   //
   // !!!DO NOT EDIT THE FOLLOWING LINE MANUALLY!!!
-  const std::string CURRENT_RESOURCE_BUNDLE_DATESTAMP = "20170925";
+  const std::string CURRENT_RESOURCE_BUNDLE_DATESTAMP = "20180118";
   const std::string RESOURCE_BUNDLE_NAME = "org.projectclearwater";
   const std::string CURRENT_RESOURCE_BUNDLE =
                  RESOURCE_BUNDLE_NAME + "." + CURRENT_RESOURCE_BUNDLE_DATESTAMP;
 
   // Name of the HTTP header we use to correlate the client and server in SAS.
   const std::string HTTP_BRANCH_HEADER_NAME = "X-SAS-HTTP-Branch-ID";
+
+  // Name of the header used by microservices for trail correlation.
+  const std::string HTTP_SPAN_ID = "X-Span-Id";
 
   // The levels at which clearwater nodes may log HTTP messages.
   enum struct HttpLogLevel
@@ -71,6 +74,7 @@ namespace SASEvent {
   const int BIFROST_BASE = 0x8A0000;
   const int WEATHERWAX_BASE = 0x8B0000;
   const int RPE_BASE = 0x8C0000;
+  const int CHRONOS_BASE = 0x8D0000;
 
   //----------------------------------------------------------------------------
   // Common events and protocol flows.
@@ -111,6 +115,8 @@ namespace SASEvent {
   const int HTTP_HOSTNAME_DID_NOT_RESOLVE = COMMON_BASE + 0x000018;
   const int HTTP_HOSTNAME_DID_NOT_RESOLVE_DETAIL = COMMON_BASE + 0x000019;
 
+  const int DIAMETER_MSG_ROUTING_ERROR = COMMON_BASE + 0x00001A;
+
   const int MEMCACHED_GET_START = COMMON_BASE + 0x000100;
   const int MEMCACHED_GET_SUCCESS = COMMON_BASE + 0x000101;
   const int MEMCACHED_GET_TOMBSTONE = COMMON_BASE + 0x000102;
@@ -130,6 +136,7 @@ namespace SASEvent {
   const int MEMCACHED_GET_WITHOUT_DATA_SUCCESS = COMMON_BASE + 0x000110;
   const int MEMCACHED_SET_WITHOUT_DATA_START = COMMON_BASE + 0x000111;
   const int MEMCACHED_SET_WITHOUT_DATA_OR_CAS_START = COMMON_BASE + 0x000112;
+  const int MEMCACHED_REQ_TOO_LARGE = COMMON_BASE + 0x000113;
 
   const int BASERESOLVE_SRV_RESULT = COMMON_BASE + 0x000200;
   const int BASERESOLVE_A_RESULT_TARGET_SELECT = COMMON_BASE + 0x000201;
@@ -138,6 +145,10 @@ namespace SASEvent {
   const int DNS_FAILED = COMMON_BASE + 0x000204;
   const int DNS_NOT_FOUND = COMMON_BASE + 0x000205;
   const int DNS_TIMEOUT = COMMON_BASE + 0x000206;
+  const int BASERESOLVE_NO_RECORDS = COMMON_BASE + 0x000207;
+  const int BASERESOLVE_NO_ALLOWED_RECORDS = COMMON_BASE + 0x000208;
+  const int BASERESOLVE_IP_ALLOWED = COMMON_BASE + 0x000209;
+  const int BASERESOLVE_IP_NOT_ALLOWED = COMMON_BASE + 0x00020A;
 
   const int CASS_CONNECT_FAIL = COMMON_BASE + 0x0300;
   const int CASS_TIMEOUT = COMMON_BASE + 0x0301;
@@ -146,6 +157,13 @@ namespace SASEvent {
 
   const int LOAD_MONITOR_ACCEPTED_REQUEST = COMMON_BASE + 0x0500;
   const int LOAD_MONITOR_REJECTED_REQUEST = COMMON_BASE + 0x0501;
+  const int LOAD_MONITOR_RECALCULATE_RATE = COMMON_BASE + 0x0502;
+  const int LOAD_MONITOR_DECREASE_RATE = COMMON_BASE + 0x0503;
+  const int LOAD_MONITOR_DECREASE_PENALTIES = COMMON_BASE + 0x0504;
+  const int LOAD_MONITOR_INCREASE_RATE = COMMON_BASE + 0x0505;
+  const int LOAD_MONITOR_UNCHANGED_THRESHOLD = COMMON_BASE + 0x0506;
+  const int LOAD_MONITOR_UNCHANGED_RATE = COMMON_BASE + 0x0507;
+  const int LOAD_MONITOR_UNADJUSTED = COMMON_BASE + 0x0508;
 
 } // namespace SASEvent
 

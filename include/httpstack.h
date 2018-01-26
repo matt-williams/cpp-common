@@ -190,6 +190,11 @@ public:
                                     instance_id);
     }
 
+    inline Utils::StopWatch* get_stopwatch()
+    {
+      return &_stopwatch;
+    }
+
   protected:
     htp_method _method;
     std::string _rx_body;
@@ -252,7 +257,14 @@ public:
     //
 
     // Log any correlating markers encoded in the message header.
-    void log_correlator(SAS::TrailId trail, Request& req, uint32_t instance_id);
+    void log_correlators(SAS::TrailId trail, Request& req, uint32_t instance_id);
+
+    // Log a single correlating marker or type marker_type, extracted from header_name
+    void log_correlator(SAS::TrailId trail,
+                        Request& req,
+                        uint32_t instance_id,
+                        std::string header_name,
+                        int marker_type);
 
     // Log that a request has been received using the normal SAS event IDs.
     void log_req_event(SAS::TrailId trail,

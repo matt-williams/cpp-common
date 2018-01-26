@@ -36,18 +36,31 @@
 static const std::string TOMBSTONE = "";
 
 BaseMemcachedStore::BaseMemcachedStore(bool binary,
+                                       bool remote_store,
                                        BaseCommunicationMonitor* comm_monitor) :
   _binary(binary),
   _options(),
   _comm_monitor(comm_monitor),
   _tombstone_lifetime(200)
 {
-  // Set up the fixed options for memcached.  We use a very short connect
-  // timeout because libmemcached tries to connect to all servers sequentially
-  // during start-up, and if any are not up we don't want to wait for any
-  // significant length of time.
-  _options = "--CONNECT-TIMEOUT=10 --SUPPORT-CAS --POLL-TIMEOUT=250";
+  // Set up the fixed options for memcached.  See also the options configured
+  // on the MemcachedConnectionPool (including the connect timeout).
+  _options = "--SUPPORT-CAS";
+
+  // When the MemcachedStore is being used to write to memcached via Rogers,
+  // the poll-timeout needs to be long enough to accomodate Rogers failing to
+  // connect and/or access a failed memcached replica which can take a long
+  // time: see comment on the values of connection latency used in the
+  // MemcachedConnectionPool.
+  //
+  // - For a local store, we need to allow sufficient time for Rogers to fail
+  //   to connect and access one replica and then succeed in accessing another.
+  // - For a remote store, we need to allow the same time + 100ms latency in
+  //   each direction.
+  _options += (remote_store) ? " --POLL-TIMEOUT=300" : " --POLL-TIMEOUT=100";
   _options += (_binary) ? " --BINARY-PROTOCOL" : "";
+
+  TRC_DEBUG("Memcached options: %s", _options.c_str());
 }
 
 
@@ -66,7 +79,11 @@ memcached_return_t BaseMemcachedStore::get_from_replica(memcached_st* replica,
 
   // We must use memcached_mget because memcached_get does not retrieve CAS
   // values.
-  rc = memcached_mget(replica, &key_ptr, &key_len, 1);
+  CW_IO_STARTS("Memcached GET for " + std::string(key_ptr, key_len))
+  {
+    rc = memcached_mget(replica, &key_ptr, &key_len, 1);
+  }
+  CW_IO_COMPLETES()
 
   if (memcached_success(rc))
   {
@@ -74,7 +91,12 @@ memcached_return_t BaseMemcachedStore::get_from_replica(memcached_st* replica,
     TRC_DEBUG("Fetch result");
     memcached_result_st result;
     memcached_result_create(replica, &result);
-    memcached_fetch_result(replica, &result, &rc);
+
+    CW_IO_STARTS("Memcached GET fetch result for " + std::string(key_ptr, key_len))
+    {
+      memcached_fetch_result(replica, &result, &rc);
+    }
+    CW_IO_COMPLETES()
 
     if (memcached_success(rc))
     {
@@ -119,27 +141,35 @@ memcached_return_t BaseMemcachedStore::add_overwriting_tombstone(memcached_st* r
     if (cas == 0)
     {
       TRC_DEBUG("Attempting memcached ADD command");
-      rc = memcached_add_vb(replica,
-                            key_ptr,
-                            key_len,
-                            _binary ? vbucket : 0,
-                            data.data(),
-                            data.length(),
-                            memcached_expiration,
-                            flags);
+      CW_IO_STARTS("Memcached ADD for " + std::string(key_ptr, key_len))
+      {
+        rc = memcached_add_vb(replica,
+                              key_ptr,
+                              key_len,
+                              _binary ? vbucket : 0,
+                              data.data(),
+                              data.length(),
+                              memcached_expiration,
+                              flags);
+      }
+      CW_IO_COMPLETES()
     }
     else
     {
       TRC_DEBUG("Attempting memcached CAS command (cas = %d)", cas);
-      rc = memcached_cas_vb(replica,
-                            key_ptr,
-                            key_len,
-                            _binary ? vbucket : 0,
-                            data.data(),
-                            data.length(),
-                            memcached_expiration,
-                            flags,
-                            cas);
+      CW_IO_STARTS("Memcached CAS for " + std::string(key_ptr, key_len))
+      {
+        rc = memcached_cas_vb(replica,
+                              key_ptr,
+                              key_len,
+                              _binary ? vbucket : 0,
+                              data.data(),
+                              data.length(),
+                              memcached_expiration,
+                              flags,
+                              cas);
+      }
+      CW_IO_COMPLETES()
     }
 
     if ((rc == MEMCACHED_DATA_EXISTS) ||
@@ -226,7 +256,7 @@ TopologyNeutralMemcachedStore(const std::string& target_domain,
                               bool remote_store,
                               BaseCommunicationMonitor* comm_monitor) :
   // Always use binary, as this is all Astaire supports.
-  BaseMemcachedStore(true, comm_monitor),
+  BaseMemcachedStore(true, remote_store, comm_monitor),
   _target_domain(target_domain),
   _resolver(resolver),
   _attempts(2),
@@ -287,7 +317,8 @@ Store::Status TopologyNeutralMemcachedStore::get_data(const std::string& table,
                                                       std::string& data,
                                                       uint64_t& cas,
                                                       SAS::TrailId trail,
-                                                      bool log_body)
+                                                      bool log_body,
+                                                      Format data_format)
 {
   Store::Status status;
   std::vector<AddrInfo> targets;
@@ -342,13 +373,14 @@ Store::Status TopologyNeutralMemcachedStore::get_data(const std::string& table,
 
         SAS::Event got_data(trail, event, 0);
         got_data.add_var_param(fqkey);
+        got_data.add_static_param(cas);
 
         if (log_body)
         {
           got_data.add_var_param(data);
+          got_data.add_static_param(data_format);
         }
-
-        got_data.add_static_param(cas);
+     
         SAS::report_event(got_data);
       }
 
@@ -425,12 +457,34 @@ Store::Status TopologyNeutralMemcachedStore::set_data(const std::string& table,
                                                       uint64_t cas,
                                                       int expiry,
                                                       SAS::TrailId trail,
-                                                      bool log_body)
+                                                      bool log_body,
+                                                      Store::Format data_format)
 {
   TRC_DEBUG("Writing %d bytes to table %s key %s, CAS = %ld, expiry = %d",
             data.length(), table.c_str(), key.c_str(), cas, expiry);
 
   std::string fqkey = get_fq_key(table, key);
+
+  // Check whether this request is too big.  Note that neither Rogers nor
+  // memcached impose a limit on the maximum request length, but there is no
+  // legitimate case for needing to store more than this maximum and permitting
+  // it opens us up to DoS attacks where e.g. a subscriber firing in rapid
+  // REGISTERs leads to us storing arbitrarily large values in memcached.
+  uint32_t data_length = data.length();
+  if (data_length > Store::MAX_DATA_LENGTH)
+  {
+    if (trail != 0)
+    {
+      SAS::Event err(trail, SASEvent::MEMCACHED_REQ_TOO_LARGE, 0);
+      err.add_var_param(fqkey);
+      err.add_static_param(data_length);
+      SAS::report_event(err);
+    }
+
+    TRC_INFO("Attempting to write more than %lu bytes of data -- reject request",
+             Store::MAX_DATA_LENGTH);
+    return Store::Status::ERROR;
+  }
 
   if (trail != 0)
   {
@@ -447,14 +501,17 @@ Store::Status TopologyNeutralMemcachedStore::set_data(const std::string& table,
 
     SAS::Event start(trail, event, 0);
     start.add_var_param(fqkey);
+    start.add_static_param(cas);
+    start.add_static_param(expiry);
 
     if (log_body)
     {
+      // Note that we do this _after_ policing the maximum length which means
+      // that data is less than the maximum 64k supported by SAS.
       start.add_var_param(data);
+      start.add_static_param(data_format);
     }
-
-    start.add_static_param(cas);
-    start.add_static_param(expiry);
+  
     SAS::report_event(start);
   }
 
@@ -482,15 +539,19 @@ Store::Status TopologyNeutralMemcachedStore::set_data(const std::string& table,
     {
       // This is an update to an existing record, so use memcached_cas
       // to make sure it is atomic.
-      rc = memcached_cas_vb(conn_handle.get_connection(),
-                            fqkey.data(),
-                            fqkey.length(),
-                            0,
-                            data.data(),
-                            data.length(),
-                            memcached_expiration,
-                            0,
-                            cas);
+      CW_IO_STARTS("Memcached CAS for " + fqkey)
+      {
+        rc = memcached_cas_vb(conn_handle.get_connection(),
+                              fqkey.data(),
+                              fqkey.length(),
+                              0,
+                              data.data(),
+                              data.length(),
+                              memcached_expiration,
+                              0,
+                              cas);
+      }
+      CW_IO_COMPLETES()
     }
     return rc;
   };
@@ -507,7 +568,8 @@ Store::Status TopologyNeutralMemcachedStore::set_data_without_cas(const std::str
                                                                   const std::string& data,
                                                                   int expiry,
                                                                   SAS::TrailId trail,
-                                                                  bool log_body)
+                                                                  bool log_body,
+                                                                  Store::Format data_format)
 {
   TRC_DEBUG("Writing %d bytes to table %s key %s, expiry = %d",
             data.length(), table.c_str(), key.c_str(), expiry);
@@ -529,13 +591,14 @@ Store::Status TopologyNeutralMemcachedStore::set_data_without_cas(const std::str
 
     SAS::Event start(trail, event, 0);
     start.add_var_param(fqkey);
+    start.add_static_param(expiry);
 
     if (log_body)
     {
       start.add_var_param(data);
+      start.add_static_param(data_format);
     }
 
-    start.add_static_param(expiry);
     SAS::report_event(start);
   }
 
@@ -543,7 +606,11 @@ Store::Status TopologyNeutralMemcachedStore::set_data_without_cas(const std::str
     [&] (ConnectionHandle<memcached_st*>& conn_handle,
          time_t memcached_expiration) -> memcached_return_t
   {
-    return memcached_set_vb(conn_handle.get_connection(),
+    memcached_return_t rc;
+
+    CW_IO_STARTS("Memcached SET for " + fqkey)
+    {
+      rc = memcached_set_vb(conn_handle.get_connection(),
                             fqkey.data(),
                             fqkey.length(),
                             0,
@@ -551,6 +618,10 @@ Store::Status TopologyNeutralMemcachedStore::set_data_without_cas(const std::str
                             data.length(),
                             memcached_expiration,
                             0);
+    }
+    CW_IO_COMPLETES();
+
+    return rc;
   };
 
   return set_data(fqkey,
@@ -692,18 +763,26 @@ Store::Status TopologyNeutralMemcachedStore::delete_data(const std::string& tabl
 
     if (_tombstone_lifetime == 0)
     {
-      rc = memcached_delete(conn_handle.get_connection(), fqkey.data(), fqkey.length(), 0);
+      CW_IO_STARTS("Memcached DELETE for " + fqkey)
+      {
+        rc = memcached_delete(conn_handle.get_connection(), fqkey.data(), fqkey.length(), 0);
+      }
+      CW_IO_COMPLETES()
     }
     else
     {
-      rc = memcached_set_vb(conn_handle.get_connection(),
-                            fqkey.data(),
-                            fqkey.length(),
-                            0,
-                            TOMBSTONE.data(),
-                            TOMBSTONE.length(),
-                            _tombstone_lifetime,
-                            0);
+      CW_IO_STARTS("Memcached SET for " + fqkey)
+      {
+        rc = memcached_set_vb(conn_handle.get_connection(),
+                              fqkey.data(),
+                              fqkey.length(),
+                              0,
+                              TOMBSTONE.data(),
+                              TOMBSTONE.length(),
+                              _tombstone_lifetime,
+                              0);
+      }
+      CW_IO_COMPLETES()
     }
     return rc;
   });

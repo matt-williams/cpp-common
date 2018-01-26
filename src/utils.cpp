@@ -127,6 +127,34 @@ std::string Utils::url_unescape(const std::string& s)
   return r;
 }
 
+// The following function quotes strings in SIP headers as described by RFC 3261 
+// Section 25.1
+std::string Utils::quote_string(const std::string& s)
+{
+  std::string r = "\"";
+  r.reserve((2*s.length()) + 2); // Reserve enough space to avoid continually reallocating.
+
+  for (size_t ii = 0; ii < s.length(); ++ii)
+  {
+    char unquot = s[ii];
+    switch (unquot)
+    {
+      case '"':
+      case '\\':
+        r.push_back('\\');
+        break;
+
+      default:
+        break;
+    }
+
+    r.push_back(unquot);
+  }
+
+  r.push_back('"');
+
+  return r;
+}
 
 std::string Utils::url_escape(const std::string& s)
 {
@@ -830,3 +858,48 @@ bool Utils::in_vector(const std::string& element,
 {
   return std::find(vec.begin(), vec.end(), element) != vec.end();
 }
+
+//
+// IOHook methods.
+//
+
+Utils::IOHook::IOHook(IOStartedCallback start_cb,
+                      IOCompletedCallback complete_cb) :
+  _io_started_cb(start_cb),
+  _io_completed_cb(complete_cb)
+{
+  _hooks.push_back(this);
+  TRC_DEBUG("Added IOHook %p to stack. There are now %d hooks", this, _hooks.size());
+}
+
+Utils::IOHook::~IOHook()
+{
+  _hooks.erase(std::remove(_hooks.begin(), _hooks.end(), this));
+  TRC_DEBUG("Removed IOHook %p to stack. There are now %d hooks", this, _hooks.size());
+}
+
+void Utils::IOHook::io_starts(const std::string& reason)
+{
+  // Iterate through the hooks in reverse order so the one most recently
+  // registered gets invoked first.
+  for(std::vector<IOHook*>::reverse_iterator hook = _hooks.rbegin();
+      hook != _hooks.rend();
+      hook++)
+  {
+    (*hook)->_io_started_cb(reason);
+  }
+}
+
+void Utils::IOHook::io_completes(const std::string& reason)
+{
+  // Iterate through the hooks in reverse order so the one most recently
+  // registered gets invoked first.
+  for(std::vector<IOHook*>::reverse_iterator hook = _hooks.rbegin();
+      hook != _hooks.rend();
+      hook++)
+  {
+    (*hook)->_io_completed_cb(reason);
+  }
+}
+
+thread_local std::vector<Utils::IOHook*> Utils::IOHook::_hooks = {};
