@@ -71,8 +71,9 @@ public:
              long timeout_ms = -1,
              bool log_display_address = false,
              std::string server_display_address = "",
-             std::string local_appl = "",
-             std::string remote_appl = "");
+             std::string rina_dif = "",
+             std::string rina_local_appl = "",
+             std::string rina_remote_appl = "");
 
   HttpClient(bool assert_user,
              HttpResolver* resolver,
@@ -432,6 +433,7 @@ private:
   bool _should_omit_body;
   bool _log_display_address;
   std::string _server_display_address;
-  std::string _local_appl;
-  std::string _remote_appl;
+  std::string _rina_dif;
+  std::string _rina_local_appl;
+  std::string _rina_remote_appl;
 };

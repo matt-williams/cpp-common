@@ -41,8 +41,9 @@ public:
                  long timeout_ms = -1,
                  bool log_display_address = false,
                  std::string server_display_address = "",
-                 std::string local_appl = "",
-                 std::string remote_appl = "") :
+                 std::string rina_dif = "",
+                 std::string rina_local_appl = "",
+                 std::string rina_remote_appl = "") :
     _scheme(scheme),
     _server(server),
     _client(assert_user,
@@ -56,8 +57,9 @@ public:
             timeout_ms,
             log_display_address,
             server_display_address,
-            local_appl,
-            remote_appl)
+            rina_dif,
+            rina_local_appl,
+            rina_remote_appl)
   {
     TRC_STATUS("Configuring HTTP Connection");
     TRC_STATUS("  Connection created for server %s", _server.c_str());

@@ -36,8 +36,8 @@ static const int MAX_TARGETS = 5;
 /// @param sas_log_level the level to log HTTP flows at (none/protocol/detail).
 /// @param log_display_address Log an address other than server to SAS?
 /// @param server_display_address The address to log in the SAS call flow
-/// @param local_appl The name of the local application
-/// @param remote_appl The name of the remote application
+/// @param rina_local_appl The name of the RINA local application
+/// @param rina_remote_appl The name of the RINA remote application
 HttpClient::HttpClient(bool assert_user,
                        HttpResolver* resolver,
                        SNMP::IPCountTable* stat_table,
@@ -49,8 +49,9 @@ HttpClient::HttpClient(bool assert_user,
                        long timeout_ms,
                        bool log_display_address,
                        std::string server_display_address,
-                       std::string local_appl,
-                       std::string remote_appl) :
+                       std::string rina_dif,
+                       std::string rina_local_appl,
+                       std::string rina_remote_appl) :
   _assert_user(assert_user),
   _resolver(resolver),
   _load_monitor(load_monitor),
@@ -61,8 +62,9 @@ HttpClient::HttpClient(bool assert_user,
   _should_omit_body(should_omit_body),
   _log_display_address(log_display_address),
   _server_display_address(server_display_address),
-  _local_appl(local_appl),
-  _remote_appl(remote_appl)
+  _rina_dif(rina_dif),
+  _rina_local_appl(rina_local_appl),
+  _rina_remote_appl(rina_remote_appl)
 {
   pthread_key_create(&_uuid_thread_local, cleanup_uuid);
   pthread_mutex_init(&_lock, NULL);
@@ -483,9 +485,9 @@ curl_socket_t HttpClient::opensocket(void *clientp,
     struct rina_flow_spec default_flowspec;
     rina_flow_spec_default(&default_flowspec);
 
-    sockfd = rina_flow_alloc(NULL,
-                             _local_appl.c_str(),
-                             _remote_appl.c_str(),
+    sockfd = rina_flow_alloc(!_rina_dif.empty() ? _rina_dif.c_str() : NULL,
+                             _rina_local_appl.c_str(),
+                             _rina_remote_appl.c_str(),
                              &default_flowspec,
                              0);
     TRC_DEBUG("sockfd: %d, %d", sockfd, errno);
@@ -619,10 +621,10 @@ HTTPCode HttpClient::send_request(RequestType request_type,
                           sizeof(buf));
 
     // CURLOPT_OPENSOCKETFUNCTION with RINA used
-    TRC_DEBUG("_local_appl: %s", _local_appl.c_str());
-    TRC_DEBUG("_remote_appl: %s", _remote_appl.c_str());
-    if(_local_appl.compare("") != 0 && _remote_appl.compare("") != 0)
+    if (!_rina_local_appl.empty() && !_rina_remote_appl.empty())
     {
+      TRC_DEBUG("Using RINA transport: local_appl = %s, remote_appl = %s",
+                _rina_local_appl.c_str(), _rina_remote_appl.c_str());
       curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, opensocket_fn);
       curl_easy_setopt(curl, CURLOPT_OPENSOCKETDATA, this); 
       curl_easy_setopt(curl, CURLOPT_SOCKOPTFUNCTION, sockopt_callback);
